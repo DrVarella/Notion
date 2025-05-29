@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Contagem de Tempo</title>
   <style>
-    body{font-family:sans-serif;margin:0;padding:10px;background:#f9f9f9}
-    #widget{background:#fff;border-radius:8px;padding:20px;max-width:300px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-    h2{margin:0 0 10px;font-size:1.2em}
-    #current-time{font-weight:bold}
-    #task-name{margin-top:8px}
-    #countdown{margin-top:4px;font-size:1.5em;color:#d9534f}
-    #error{margin-top:10px;color:#a94442;font-size:0.9em}
+    body { font-family: sans-serif; margin: 0; padding: 10px; background: #f9f9f9; }
+    #widget { background: #fff; border-radius: 8px; padding: 20px; max-width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    h2 { margin: 0 0 10px; font-size: 1.2em; }
+    #current-time { font-weight: bold; }
+    #task-name { margin-top: 8px; }
+    #countdown { margin-top: 4px; font-size: 1.5em; color: #d9534f; }
+    #error { margin-top: 10px; color: #a94442; font-size: 0.9em; }
   </style>
 </head>
 <body>
@@ -23,37 +23,114 @@
     <div id="error"></div>
   </div>
   <script>
-    const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
     const TOKEN = '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';
     const DB = '1ff38d12893a80c490e4f37a994bbe76';
-    async function load(){
-      const url = PROXY_URL + `https://api.notion.com/v1/databases/${DB}/query`;
-      let res;
-      try{ res = await fetch(url, {method:'POST',headers:{'Authorization':`Bearer ${TOKEN}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'}}); }
-      catch(e){ document.getElementById('error').textContent='Erro de rede ao acessar Notion'; return []; }
-      if(!res.ok){ document.getElementById('error').textContent=`Erro ${res.status}`; return []; }
-      let data;
-      try{ data = await res.json(); }
-      catch(e){ document.getElementById('error').textContent='Falha ao processar resposta'; return []; }
-      if(!Array.isArray(data.results)){ document.getElementById('error').textContent='Dados inesperados'; return []; }
-      return data.results.map(p=>{const pr=p.properties; const name=pr.Name?.title[0]?.plain_text||'Sem título'; const s=pr.Start?.date?.start?.slice(11,16); const e=(pr.End?.date?.end||pr.Start?.date?.start)?.slice(11,16); return s&&e?{name,start:s,end:e}:null;}).filter(x=>x);
-    }
-    function toDate(t){ const [h,m]=t.split(':').map(Number); const d=new Date(); d.setHours(h,m,0,0); return d; }
-    async function init(){
-      const errEl=document.getElementById('error'); errEl.textContent='';
-      const tasks = (await load()).sort((a,b)=>toDate(a.start)-toDate(b.start));
-      function update(){
-        const now=new Date(); document.getElementById('current-time').textContent=now.toLocaleTimeString('pt-BR',{hour12:false});
-        let cur=tasks.find(t=>{const s=toDate(t.start),e=toDate(t.end); return now>=s&&now<e;});
-        let label,diff;
-        if(cur){ label=`${cur.name} termina em`; diff=toDate(cur.end)-now; }
-        else{ const nxt=tasks.find(t=>toDate(t.start)>now); if(nxt){ label=`${nxt.name} começa em`; diff=toDate(nxt.start)-now; } else{ document.getElementById('task-name').textContent='Nenhuma atividade pendente'; document.getElementById('countdown').textContent=''; return; } }
-        document.getElementById('task-name').textContent=label;
-        const h=String(Math.floor(diff/3600000)).padStart(2,'0'); const m=String(Math.floor((diff%3600000)/60000)).padStart(2,'0'); const s=String(Math.floor((diff%60000)/1000)).padStart(2,'0');
-        document.getElementById('countdown').textContent=`${h}:${m}:${s}`;
+
+    async function loadTasks() {
+      const url = `https://api.notion.com/v1/databases/${DB}/query`;
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${TOKEN}`,
+            'Notion-Version': '2022-06-28',
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (networkError) {
+        document.getElementById('error').textContent = 'Erro de rede ao acessar Notion.';
+        console.error('Network error:', networkError);
+        return [];
       }
-      update(); setInterval(update,1000);
+
+      if (!response.ok) {
+        document.getElementById('error').textContent = `Erro ${response.status}: ${response.statusText}`;
+        console.error('API error:', response);
+        return [];
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        document.getElementById('error').textContent = 'Falha ao processar resposta do Notion.';
+        console.error('Parse error:', parseError);
+        return [];
+      }
+
+      if (!Array.isArray(data.results)) {
+        document.getElementById('error').textContent = 'Dados inesperados do Notion.';
+        console.error('Unexpected data format:', data);
+        return [];
+      }
+
+      return data.results
+        .map(page => {
+          const props = page.properties;
+          const name = props['Name']?.title[0]?.plain_text || 'Sem título';
+          const startISO = props['Start']?.date?.start;
+          const endISO = props['End']?.date?.end || startISO;
+          if (!startISO || !endISO) return null;
+          return {
+            name,
+            start: startISO.substring(11, 16),
+            end: endISO.substring(11, 16)
+          };
+        })
+        .filter(task => task !== null);
     }
+
+    function toDate(timeStr) {
+      const [h, m] = timeStr.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      return d;
+    }
+
+    async function init() {
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      const tasks = (await loadTasks()).sort((a, b) => toDate(a.start) - toDate(b.start));
+
+      function update() {
+        const now = new Date();
+        document.getElementById('current-time').textContent = now.toLocaleTimeString('pt-BR', { hour12: false });
+
+        let current = tasks.find(task => {
+          const start = toDate(task.start);
+          const end = toDate(task.end);
+          return now >= start && now < end;
+        });
+
+        let label, diff;
+        if (current) {
+          label = `${current.name} termina em`;
+          diff = toDate(current.end) - now;
+        } else {
+          const next = tasks.find(task => toDate(task.start) > now);
+          if (next) {
+            label = `${next.name} começa em`;
+            diff = toDate(next.start) - now;
+          } else {
+            document.getElementById('task-name').textContent = 'Nenhuma atividade pendente';
+            document.getElementById('countdown').textContent = '';
+            return;
+          }
+        }
+
+        document.getElementById('task-name').textContent = label;
+        const hours = String(Math.floor(diff / 3600000)).padStart(2, '0');
+        const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+        const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+        document.getElementById('countdown').textContent = `${hours}:${minutes}:${seconds}`;
+      }
+
+      update();
+      setInterval(update, 1000);
+    }
+
     init();
   </script>
 </body>
