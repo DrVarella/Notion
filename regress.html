@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contagem de Tempo</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 10px; background: #f9f9f9; }
+    #widget { background: white; border-radius: 8px; padding: 20px; max-width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    h2 { margin: 0 0 10px; font-size: 1.2em; }
+    #current-time { font-weight: bold; }
+    #task-name { margin-top: 8px; }
+    #countdown { margin-top: 4px; font-size: 1.5em; color: #d9534f; }
+  </style>
+</head>
+<body>
+  <div id="widget">
+    <h2>Relógio e Contagem Regressiva</h2>
+    <div>Hora atual: <span id="current-time">--:--:--</span></div>
+    <div id="task-name">Nenhuma atividade em andamento</div>
+    <div id="countdown"></div>
+  </div>
+  <script>
+    // Defina seu array de tarefas aqui ou especifique tasksUrl abaixo
+    const tasksUrl = null; // ex: 'https://seu-servidor.com/tasks.json'
+    let tasks = [
+      { name: "Atividade 1", start: "09:00", end: "10:30" },
+      { name: "Atividade 2", start: "10:30", end: "12:00" },
+      // Adicione quantas tarefas precisar, usando o formato HH:mm
+    ];
+    function parseTime(str) {
+      const [h, m] = str.split(':').map(Number);
+      const now = new Date();
+      now.setHours(h, m, 0, 0);
+      return now;
+    }
+    async function loadTasks() {
+      if (tasksUrl) {
+        try {
+          const res = await fetch(tasksUrl);
+          tasks = await res.json();
+        } catch (e) {
+          console.error("Erro ao carregar tasks.json:", e);
+        }
+      }
+    }
+    function updateWidget() {
+      const now = new Date();
+      document.getElementById('current-time').textContent = now.toLocaleTimeString('pt-BR', { hour12: false });
+      const current = tasks.find(t => {
+        const start = parseTime(t.start);
+        const end = parseTime(t.end);
+        return now >= start && now < end;
+      });
+      const nameEl = document.getElementById('task-name');
+      const countdownEl = document.getElementById('countdown');
+      if (current) {
+        nameEl.textContent = current.name;
+        const end = parseTime(current.end);
+        const diff = end - now;
+        const h = String(Math.floor(diff / 3600000)).padStart(2,'0');
+        const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2,'0');
+        const s = String(Math.floor((diff % 60000) / 1000)).padStart(2,'0');
+        countdownEl.textContent = `${h}:${m}:${s} restantes`;
+      } else {
+        nameEl.textContent = "Nenhuma atividade em andamento";
+        countdownEl.textContent = "";
+      }
+    }
+    async function init() {
+      await loadTasks();
+      updateWidget();
+      setInterval(updateWidget, 1000);
+    }
+    init();
+  </script>
+</body>
+</html>
