@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contador Notion</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 40px; /* Ajustado para ser mais compacto */
+            margin: 0;
+            background-color: transparent;
+            color: #37352f; /* Cor padrão do Notion */
+            font-size: 14px; /* Tamanho padrão do Notion */
+            text-align: center;
+            overflow: hidden; /* Evita barras de rolagem no embed */
+        }
+        #contador {
+            padding: 8px 12px;
+            border-radius: 3px;
+            white-space: nowrap; /* Impede quebra de linha */
+            /* background-color: rgba(235, 236, 237, 0.3); /* Fundo sutil opcional */
+        }
+        .loading {
+            font-style: italic;
+            color: #9b9a97; /* Cinza mais claro */
+        }
+    </style>
+</head>
+<body>
+    <div id="contador" class="loading">Carregando...</div>
+
+    <script>
+        // --- Configuração (Substitua pelos seus valores) ---
+        // 1. Crie uma integração em: https://www.notion.so/my-integrations
+        // 2. Copie o "Internal Integration Token" para NOTION_API_KEY.
+        // 3. Compartilhe a página do Notion com a sua integração.
+        // 4. Obtenha o ID da página (parte da URL após o último traço).
+        // 5. Insira o nome exato da propriedade de fórmula.
+        const NOTION_API_KEY = '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';
+        const NOTION_PAGE_ID = 'https://www.notion.so/1ff38d12893a80c490e4f37a994bbe76?v=1ff38d12893a81278d5f000ce3b2b8c3';
+        const NOTION_PROPERTY_NAME = 'Evento';
+        // ----------------------------------------------------
+        const API_ENDPOINT = `https://api.notion.com/v1/pages/${NOTION_PAGE_ID}/properties/${encodeURIComponent(NOTION_PROPERTY_NAME)}`;
+        const FETCH_INTERVAL_MS = 15 * 60 * 1000; // Atualiza dados do Notion a cada 15 minutos
+        const COUNTDOWN_UPDATE_INTERVAL_MS = 60 * 1000; // Atualiza display do contador a cada 1 minuto
+
+        const contadorElement = document.getElementById('contador');
+        let countdownIntervalId = null;
+        let fetchIntervalId = null;
+
+        function parseTimeStringToMs(timeString) {
+            const match = timeString.match(/(\d+)h (\d+)m/);
+            if (match) {
+                const hours = parseInt(match[1], 10);
+                const minutes = parseInt(match[2], 10);
+                return (hours * 60 + minutes) * 60 * 1000; // Retorna em milissegundos
+            }
+            console.warn("Não foi possível parsear o tempo:", timeString);
+            return 0;
+        }
+
+        function formatTime(ms) {
+            if (ms <= 0) return "0m"; // Exibe 0m quando zerado ou negativo
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            // const seconds = totalSeconds % 60; // Não exibimos segundos
+
+            let formatted = "";
+            if (hours > 0) {
+                formatted += `${hours}h `;
+            }
+            formatted += `${minutes}m`;
+            return formatted;
+        }
+
+        async function fetchNotionProperty() {
+            // Verifica se as constantes foram preenchidas
+            if (NOTION_API_KEY.startsWith('COLE_SEU') || NOTION_PAGE_ID.startsWith('COLE_SEU') || NOTION_PROPERTY_NAME.startsWith('COLE_O_NOME')) {
+                console.error("Configuração incompleta. Preencha NOTION_API_KEY, NOTION_PAGE_ID e NOTION_PROPERTY_NAME.");
+                return "Erro: Configure o widget";
+            }
+
+            console.log("Buscando dados do Notion...");
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${NOTION_API_KEY}`,
+                        'Notion-Version': '2022-06-28',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    // Tratamento de erros comuns da API
+                    if (response.status === 401) throw new Error("Token inválido ou não autorizado.");
+                    if (response.status === 404) throw new Error("Página ou propriedade não encontrada.");
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // Extrai o valor da fórmula
+                if (data.object === 'property_item' && data.type === 'formula' && data.formula && typeof data.formula.string !== 'undefined') {
+                    console.log("Valor bruto da fórmula:", data.formula.string);
+                    return data.formula.string;
+                } else {
+                    console.error("Formato inesperado da resposta da API:", data);
+                    return "Erro: Formato API";
+                }
+            } catch (error) {
+                console.error('Erro ao buscar dados do Notion:', error);
+                // Retorna mensagens de erro mais amigáveis
+                if (error.message.includes("Token inválido")) return "Erro: Token inválido";
+                if (error.message.includes("Página ou propriedade")) return "Erro: Página/Propriedade não encontrada";
+                if (error.message.includes("Configure o widget")) return error.message;
+                return "Erro: Falha na conexão"; // Erro genérico
+            }
+        }
+
+        function startCountdown(targetTimeMs, prefix) {
+            if (countdownIntervalId) clearInterval(countdownIntervalId);
+
+            function update() {
+                const now = Date.now();
+                const remainingMs = targetTimeMs - now;
+
+                if (remainingMs <= -COUNTDOWN_UPDATE_INTERVAL_MS) { // Adiciona margem de 1 min para evitar piscar
+                    contadorElement.textContent = prefix.includes("Termina") ? "Evento terminou ✅" : "Evento começou! 🎉";
+                    clearInterval(countdownIntervalId);
+                    // Força uma busca imediata por novos dados após o fim/início
+                    console.log("Contador finalizado, buscando atualização...");
+                    setTimeout(updateWidget, 2000); // Pequeno delay antes de buscar
+                } else {
+                    contadorElement.textContent = `${prefix} ${formatTime(remainingMs)}`;
+                }
+            }
+
+            update(); // Primeira atualização imediata
+            countdownIntervalId = setInterval(update, COUNTDOWN_UPDATE_INTERVAL_MS);
+        }
+
+        async function updateWidget() {
+            console.log("Executando updateWidget...");
+            contadorElement.textContent = 'Atualizando...';
+            contadorElement.classList.add('loading');
+            if (countdownIntervalId) clearInterval(countdownIntervalId); // Limpa contador anterior
+
+            const propertyValue = await fetchNotionProperty();
+            contadorElement.classList.remove('loading');
+            console.log("Valor processado:", propertyValue);
+
+            const now = Date.now(); // Momento da busca
+            let handled = false;
+
+            if (propertyValue.startsWith("🟡 Termina em:")) {
+                const timeString = propertyValue.substring("🟡 Termina em:".length).trim();
+                const durationMs = parseTimeStringToMs(timeString);
+                if (durationMs > 0) {
+                    const targetTimeMs = now + durationMs;
+                    startCountdown(targetTimeMs, "🟡 Termina em:");
+                    handled = true;
+                } else {
+                    contadorElement.textContent = "Erro: Tempo inválido (Termina)";
+                    handled = true;
+                }
+            } else if (propertyValue.startsWith("🟢 Começa em:") || propertyValue.startsWith("🔵 Próximo evento em:")) {
+                let prefix = "🟢 Começa em:";
+                let timeString = "";
+                if (propertyValue.startsWith("🟢 Começa em:")) {
+                    timeString = propertyValue.substring(prefix.length).trim();
+                } else { // Caso "🔵 Próximo evento em:"
+                    timeString = propertyValue.substring("🔵 Próximo evento em:".length).trim();
+                }
+                const durationMs = parseTimeStringToMs(timeString);
+                if (durationMs > 0) {
+                    const targetTimeMs = now + durationMs;
+                    startCountdown(targetTimeMs, prefix);
+                    handled = true;
+                } else {
+                    contadorElement.textContent = "Erro: Tempo inválido (Começa)";
+                    handled = true;
+                }
+            } else if (propertyValue.startsWith("⭕ Em atraso")) {
+                // Ignora e busca o próximo estado (ou exibe mensagem se não houver próximo)
+                // Por enquanto, apenas exibe que não há evento ativo/próximo
+                 contadorElement.textContent = "Sem evento ativo/próximo";
+                 handled = true;
+                 // Idealmente, a API deveria ser chamada novamente para buscar o *próximo* evento,
+                 // mas a fórmula atual não fornece essa informação diretamente quando está em atraso.
+                 // A solução mais simples é exibir uma mensagem estática ou aguardar a próxima atualização.
+
+            } else if (propertyValue.startsWith("Erro:")) {
+                 contadorElement.textContent = propertyValue; // Exibe a mensagem de erro da API
+                 handled = true;
+                 // Interrompe a busca periódica em caso de erro de configuração
+                 if (propertyValue.includes("Configure") || propertyValue.includes("Token") || propertyValue.includes("Página/Propriedade")) {
+                    if (fetchIntervalId) clearInterval(fetchIntervalId);
+                    console.error("Busca periódica interrompida devido a erro de configuração.");
+                 }
+            }
+
+            // Se nenhuma das condições anteriores foi atendida (ex: "Evento já terminou ✅", "Sem eventos hoje", etc.)
+            if (!handled) {
+                contadorElement.textContent = "Sem eventos hoje";
+            }
+        }
+
+        // --- Inicialização ---
+        updateWidget(); // Primeira chamada ao carregar
+        // Configura a busca periódica de dados do Notion
+        if (fetchIntervalId) clearInterval(fetchIntervalId);
+        fetchIntervalId = setInterval(updateWidget, FETCH_INTERVAL_MS);
+        // -------------------
+
+    </script>
+</body>
+</html>
